@@ -1,0 +1,8 @@
+venv/
+.vscode/
+.env
+.DS*
+*.pyc
+*.pptx
+.terraform
+.terraform.lock.hcl

@@ -1,0 +1,17 @@
+venv/
+.vscode/
+.env
+.DS_Store
+__pycache__/
+*.pyc
+*.pptx
+.terraform
+.terraform.lock.hcl
+
+# Old prototype scripts to avoid committing
+embed_tickets.py
+freshdesk.py
+ticket_agent_embedding.py
+
+venv
+.env
