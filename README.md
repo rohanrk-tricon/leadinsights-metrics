@@ -1,66 +1,85 @@
-# Ticket Intelligence Platform
+# Lead Insights Workspace
 
-[![FastAPI](https://img.shields.io/badge/FastAPI-005571?style=for-the-badge&logo=fastapi)](https://fastapi.tiangolo.com/)
-[![Alpine.js](https://img.shields.io/badge/Alpine.js-8BC0D0?style=for-the-badge&logo=alpine.js&logoColor=white)](https://alpinejs.dev/)
+This branch merges two applications into one repo:
 
-A production-grade intelligent retrieval-augmented generation application.
+- `LeadDB Assistant`: a React + FastAPI workspace that streams SQL-planning events through the MCP database server.
+- `Ticket Intelligence`: a Freshdesk analytics and ingestion workflow that runs alongside the LeadDB API under a separate namespace.
 
-## Overview
+## Repo Layout
 
-Ticket Intelligence is designed to connect a Freshdesk support center with a PostgreSQL database and provide semantic querying and SQL analysis using AWS Bedrock (Claude 3 Haiku) through the LangChain orchestration framework. 
+```text
+.
+├── backend
+│   ├── app
+│   │   ├── agents
+│   │   ├── api
+│   │   ├── core
+│   │   ├── db
+│   │   ├── llm
+│   │   ├── mcp
+│   │   └── ticket_intelligence
+│   ├── main.py
+│   └── requirements.txt
+├── frontend
+│   ├── src
+│   ├── package.json
+│   └── vite.config.js
+└── pipeline
+```
 
-*This replaces the original `embed_tickets.py` and `ticket_agent.py` prototype.*
+## API Surface
 
-## Getting Started
+- `GET /api/health`
+- `POST /api/chat/stream`
+- `GET /api/ticket-intelligence/health`
+- `POST /api/ticket-intelligence/query`
+- `POST /api/ticket-intelligence/ingest`
 
-### Prerequisites
+## Setup
 
-- Python 3.10+
-- PostgreSQL
-- Ollama (running locally with `nomic-embed-text`)
-- AWS API keys with Bedrock invocation permissions
+1. Copy env files.
 
-### Installation & Setup
+```bash
+cp .env.example .env
+cp frontend/.env.example frontend/.env
+```
 
-1. **Clone the Repo (or move into the root folder)**
-    ```bash
-    cd /path/to/project
-    ```
+2. Install backend dependencies.
 
-2. **Configure Environment Variables**
-    ```bash
-    cp .env.example .env
-    # Edit .env with your specific AWS, Freshdesk, and PG Database configurations
-    ```
+```bash
+python3 -m venv .venv
+.venv/bin/pip install --upgrade pip
+.venv/bin/pip install -r backend/requirements.txt
+```
 
-3. **Install Backend Dependencies**
-    ```bash
-    cd backend
-    python -m venv venv
-    source venv/bin/activate
-    pip install -r requirements.txt
-    ```
+3. Install frontend dependencies.
 
-4. **Run the API Backend Server**
-     ```bash
-     uvicorn main:app --reload
-     ```
-     > The backend will spin up on `http://127.0.0.1:8000`. Full API schema documentation is available automatically at `/docs` (Swagger UI).
+```bash
+cd frontend
+npm install
+```
 
-5. **Run the Frontend Client**
-     In a new terminal, serve the frontend HTML.
-     ```bash
-     cd frontend
-     python -m http.server 3000
-     ```
-     > Access the UI at `http://127.0.0.1:3000`
+## Run
 
-## System Architecture
+Backend:
 
-See [`docs/architecture.md`](docs/architecture.md) for the detailed pipeline structure and Mermaid diagrams.
+```bash
+cd backend
+../.venv/bin/uvicorn main:app --reload --host 0.0.0.0 --port 8000
+```
 
-## API Endpoints
+Frontend:
 
-- `GET /health` : Verify system connectivity.
-- `POST /ingest` : Triggers the asynchronous background pipeline to fetch tickets.
-- `POST /query` : Submit questions to the ChatBedrock agent and receive categorized textual responses. Request payload expects `{"question": "string"}`.
+```bash
+cd frontend
+npm run dev
+```
+
+Open `http://localhost:5173`.
+
+## Notes
+
+- The LeadDB flow uses the MCP-backed SQL orchestration in `backend/app`.
+- The ticket workflow uses the same FastAPI app but is routed under `/api/ticket-intelligence`.
+- `pipeline/` is retained for the cloned repo's experimental data workflows.
+- Ticket Intelligence now uses the configured app model provider for query reasoning and SQL-based retrieval instead of requiring Ollama.
