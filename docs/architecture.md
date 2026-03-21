@@ -24,7 +24,7 @@ graph TD;
     
     API -->|Fetch Tickets| FreshDesk[Freshdesk API];
     API -->|Batch Insert/Select| DB[(PostgreSQL + pgvector)];
-    API -->|Embedding| Ollama[Ollama Server];
+    API -->|Embedding| AWS Bedrock[AWS Bedrock];
         
     Agent -->|Execute SQL| DB;
 ```

@@ -7,10 +7,8 @@ from app.ticket_intelligence.schemas import (
     TicketQueryRequest,
     TicketQueryResponse,
 )
-from app.ticket_intelligence.service import (
-    TicketIngestionService,
-    TicketIntelligenceService,
-)
+from app.ticket_intelligence.ticket_intelligence_service import TicketIntelligenceService
+from app.ticket_intelligence.ticket_ingestion_service import TicketIngestionService
 
 router = APIRouter(tags=["ticket-intelligence"])
 logger = logging.getLogger(__name__)
@@ -23,6 +21,7 @@ def health() -> dict[str, str]:
 
 @router.post("/ingest", response_model=TicketIngestResponse)
 def ingest_data(background_tasks: BackgroundTasks, request: Request) -> TicketIngestResponse:
+    print("Received request to ingest tickets")
     service = TicketIngestionService(request.app.state.settings)
     background_tasks.add_task(service.run_pipeline)
     return TicketIngestResponse(
