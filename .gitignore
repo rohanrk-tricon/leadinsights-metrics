@@ -14,4 +14,7 @@ freshdesk.py
 ticket_agent_embedding.py
 
 venv
+.venv
 .env
+
+frontend/node_modules

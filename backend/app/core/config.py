@@ -15,26 +15,27 @@ class Settings(BaseSettings):
     api_port: int = 8000
     frontend_origin: str = "http://localhost:5173"
 
-    pg_host: str = "localhost"
-    pg_port: int = 5432
-    pg_user: str = "postgres"
-    pg_password: str = "Test@123"
-    pg_database: str = "leaddb"
+    pg_host: str = os.getenv("DB_HOST")
+    pg_port: int = int(os.getenv("DB_PORT"))
+    pg_user: str = os.getenv("DB_USER")
+    pg_password: str = os.getenv("DB_PASSWORD")
+    pg_database: str = os.getenv("DB_DATABASE")
 
-    model_provider: Literal["groq", "gemini", "bedrock"] = "groq"
+    model_provider: Literal["groq", "gemini", "bedrock"] = "bedrock"
     model_temperature: float = 0.0
     groq_model: str = "llama-3.3-70b-versatile"
     groq_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     google_api_key: str | None = None
     bedrock_model_id: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    bedrock_embedding_model: str = "amazon.titan-embed-text-v2:0"
     aws_region: str = "us-east-1"
     aws_access_key_id: str | None = None
     aws_secret_access_key: str | None = None
     aws_session_token: str | None = None
 
-    freshdesk_domain: str | None = None
-    freshdesk_api_key: str | None = None
+    freshdesk_domain: str | None = os.getenv("FRESHDESK_DOMAIN")
+    freshdesk_api_key: str | None = os.getenv("FRESHDESK_API_KEY")
     ticket_schema: str = "leadinsights"
     ticket_support_email: str = "informacomleadinsights@leadinsights.freshdesk.com"
 
