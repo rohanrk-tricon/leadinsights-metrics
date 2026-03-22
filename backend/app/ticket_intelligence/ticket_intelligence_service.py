@@ -67,14 +67,59 @@ class TicketIntelligenceService:
         2 = Open, 3 = Pending, 4 = Resolved, 5 = Closed
 
         Business Rules:
-        1. Filter LeadInsights using: support_email = '{self._settings.ticket_support_email}'
-        2. Closed tickets include statuses IN (4,5)
-        3. Resolution time only calculated for resolved/closed tickets.
+
+        1. Filter Criteria
+        Only consider records when asked about leadinsights or LI where:
+        `support_email = '{self._settings.ticket_support_email}'`
+
+        2. Closed Ticket Definition
+        A ticket is considered closed if its status is either 4 or 5.
+
+        3. Resolution Time Calculation
+
+        * Calculate resolution time only for tickets that are resolved or closed.
+        * Ignore all other tickets for resolution time metrics.
+
+        4. Ticket Categorization (Subject-Based)
+        Analyze each ticket’s subject and assign it to the most relevant category using intelligent understanding (not exact matching). Use intent, keywords, and semantic similarity.
+
+        Categories:
+
+        * Company Accounts - Issue
+        * Company Accounts - New
+        * Data Issue - Iris
+        * Data Issue - LI Team
+        * Exporting Leads
+        * Feature Requests
+        * Forwarded to Other Team
+        * GDPR Queries
+        * Interaction Import
+        * Login Issue
+        * Platform Downtime / Bug
+        * Platform Query
+        * Revoking Access
+        * Scanning Leads
+        * Session Mapping
+        * User Accounts - Issue
+        * User Accounts - New
+        * Investor Insights
+
+        5. Uncategorized Tickets
+        If the subject does not clearly match any category, assign:
+        "Tickets Not Tagged to Any Type"
+
+        6. Classification Guidelines
+
+        * Normalize text (ignore case, punctuation, spacing).
+        * Use fuzzy matching and synonyms (e.g., “can’t log in” → “Login Issue”).
+        * Prioritize intent over exact words.
+        * If multiple categories apply, choose the most specific one.
+        * Ensure consistency, accuracy, and no misclassification.
 
         Cleaning Rules (Exclusions):
         - tags array contains 'spam' (e.g. 'spam' = ANY(tags))
         - subject contains: 'automatic reply', 'respuesta automática', 'réponse automatique', 'export of tickets'
-
+        
         SQL Rules:
         - Use ONLY f"{self._settings.ticket_schema}.freshdesk_tickets"
         - Always apply cleaning rules and filter LeadInsights
@@ -138,7 +183,7 @@ class TicketIntelligenceService:
         if match:
             return match.group(1).strip()
 
-        match_select = re.search(r"(SELECT\s+.*)", text, re.DOTALL | re.IGNORECASE)
+        match_select = re.search(r"((?:with|select)\b.*)", text, re.DOTALL | re.IGNORECASE)
         if match_select:
             return match_select.group(1).strip()
 
@@ -151,11 +196,17 @@ class TicketIntelligenceService:
         Database schema: {self._schema_prompt}
 
         Rules:
-        - Only SELECT queries.
-        - PostgreSQL syntax.
-        - Always filter LeadInsights tickets.
-        - Apply cleaning rules.
-        - Return ONLY the SQL code. Start immediately with SELECT.
+            - Only produce SELECT statements (no INSERT, UPDATE, DELETE, or DDL operations).
+            - Use valid PostgreSQL syntax.
+            - Ensure the query always filters for LeadInsights tickets.
+            - Apply all required data cleaning rules within the query.
+            - Output only the SQL code:
+            - Begin directly with SELECT or WITH (if using CTEs).
+            - Do not include any explanations, comments, or additional text.
+
+        Cleaning Rules (Exclusions):
+            - tags array contains 'spam' (e.g. 'spam' = ANY(tags))
+            - subject contains: 'automatic reply', 'respuesta automática', 'réponse automatique', 'export of tickets'
 
         Question: {question}
         """
@@ -165,8 +216,9 @@ class TicketIntelligenceService:
         logger.debug("Running basic SQL safety check")
 
         sql_lower = sql.lower().strip()
-        if not sql_lower.startswith("select"):
-            logger.warning("SQL does not start with SELECT")
+        # Allow queries that start with SELECT or WITH (for CTEs)
+        if not re.match(r"^(select|with)\b", sql_lower):
+            logger.warning("SQL must start with SELECT or WITH (CTE)")
             return False
 
         banned = [r";\s*delete\b", r"\bdrop\b", r"\bupdate\b", r"\binsert\b", r"\btruncate\b", r"\balter\b"]
@@ -252,7 +304,6 @@ class TicketIntelligenceService:
             FROM freshdesk_tickets
             WHERE embedding IS NOT NULL
             ORDER BY embedding <-> %s
-            LIMIT 10
         """
 
         try:
@@ -271,12 +322,30 @@ class TicketIntelligenceService:
     def semantic_answer(self, question: str, tickets: list[Any]) -> str:
         logger.info("Generating semantic answer")
         prompt = f"""
-        User question: {question}
-        Relevant tickets: {tickets}
+            You are an assistant that analyzes support tickets and provides clear, structured insights.
 
-        Identify common themes and explain them clearly.
-        Format the response using concise markdown with short headings and bullet points.
-        """
+            User Question
+            {question}
+
+            Input Data
+            Relevant tickets:
+            {tickets}
+
+            Task
+            1. Filter out irrelevant tickets using the rules below.
+            2. Analyze the remaining tickets.
+            3. Identify key patterns, recurring issues, and notable insights.
+            4. Answer the user’s question using these insights.
+
+            Filtering Rules (Strict)
+            Exclude any ticket where:
+            - The "tags" field contains "spam"
+            - The "subject" contains (case-insensitive):
+            - "automatic reply"
+            - "respuesta automática"
+            - "réponse automatique"
+            - "export of tickets"
+            """
         return self._call_llm(prompt)
 
     def explain_result(self, question: str, sql: str, rows: list[Any]) -> str: 
@@ -287,7 +356,6 @@ class TicketIntelligenceService:
 
         Format the output as a concise bulleted list based only on the result data. Do not explain how the query was generated. """
         return self._call_llm(prompt)
-
 
     def validate_sql_with_llm(self, question: str, sql: str) -> str:
         logger.info("Validating SQL with LLM")
@@ -301,13 +369,13 @@ class TicketIntelligenceService:
         Database Schema: {self._schema_prompt}
 
         Validation Rules:
-        1. NO destructive operations (DROP, DELETE, ALTER, UPDATE, INSERT, TRUNCATE). Only SELECT is allowed. (Note: The word 'delete' is allowed in string literals to search for textual matches).
+        1. NO destructive operations (DROP, DELETE, ALTER, UPDATE, INSERT, TRUNCATE). Only SELECT or WITH (if using CTEs) is allowed. (Note: The word 'delete' is allowed in string literals to search for textual matches).
         2. NO SQL injection patterns (e.g., OR 1=1, UNION SELECT).
         3. Must be perfectly formed PostgreSQL syntax.
         4. Query MUST match the user's intent based on the Question and the Schema.
 
         If the Original SQL is safe and perfectly answers the question, output ONLY the Original SQL. DO NOT include any conversational text.
-        If the Original SQL violates any rules, or doesn't match the intent, rewrite it to be safe and correct. Output ONLY the rewritten SQL. DO NOT include any conversational text like "Here is the fixed query". Start immediately with SELECT.
+        If the Original SQL violates any rules, or doesn't match the intent, rewrite it to be safe and correct. Output ONLY the rewritten SQL. DO NOT include any conversational text like "Here is the fixed query". Start immediately with SELECT or WITH (if using CTEs).
         """
         validated = self.extract_sql(self._call_llm(prompt))
 
