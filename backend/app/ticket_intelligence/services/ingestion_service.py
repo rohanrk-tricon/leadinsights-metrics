@@ -1,24 +1,18 @@
-from __future__ import annotations
-
 import logging
-import re
 import time
 from typing import Any
-
-import psycopg2
 import requests
-import boto3
-from langchain_aws import BedrockEmbeddings
 from psycopg2.extras import Json, execute_batch
 
 from app.core.config import Settings
+from app.ticket_intelligence.services.db_service import TicketDBService
 
 logger = logging.getLogger(__name__)
 
-
 class TicketIngestionService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, db_service: TicketDBService) -> None:
         self._settings = settings
+        self._db_service = db_service
         self._per_page = 100
         self._max_retries = 3
         self._base_url = None
@@ -32,39 +26,6 @@ class TicketIngestionService:
             logger.info("Freshdesk base URL configured")
         else:
             logger.warning("Freshdesk domain not provided")
-
-        # AWS / Bedrock setup
-        try:
-            session = boto3.Session(
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-                aws_session_token=settings.aws_session_token,
-                region_name=settings.aws_region
-            )
-            self.embeddings = BedrockEmbeddings(
-                client=session.client("bedrock-runtime"),
-                model_id=settings.bedrock_embedding_model
-            )
-            logger.info("Bedrock embeddings client initialized")
-        except Exception as e:
-            logger.exception("Failed to initialize Bedrock embeddings client")
-            raise
-
-    def get_db_connection(self):
-        try:
-            logger.info("Connecting to PostgreSQL database...")
-            conn = psycopg2.connect(
-                host=self._settings.pg_host,
-                port=self._settings.pg_port,
-                dbname=self._settings.pg_database,
-                user=self._settings.pg_user,
-                password=self._settings.pg_password,
-            )
-            logger.info("Database connection established")
-            return conn
-        except Exception:
-            logger.exception("Database connection failed")
-            raise
 
     def fetch_tickets(self, page: int) -> list[dict[str, Any]]:
         if not self._base_url or not self._settings.freshdesk_api_key:
@@ -159,7 +120,7 @@ class TicketIngestionService:
             return None
 
         try:
-            embedding = self.embeddings.embed_query(text)
+            embedding = self._db_service.embeddings.embed_query(text)
             logger.debug("Embedding generated successfully")
             return embedding
         except Exception:
@@ -225,7 +186,7 @@ class TicketIngestionService:
         logger.info("Starting ingestion pipeline...")
 
         try:
-            conn = self.get_db_connection()
+            conn = self._db_service.get_db_connection()
             cursor = conn.cursor()
         except Exception as e:
             return {

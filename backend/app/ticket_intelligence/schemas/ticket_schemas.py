@@ -4,6 +4,7 @@ from pydantic import BaseModel, Field
 
 
 class TicketQueryRequest(BaseModel):
+    use_case: str = Field("leadinsights", description="The registered use-case to query against")
     question: str = Field(..., min_length=3, max_length=2000)
 
 
@@ -18,3 +19,7 @@ class TicketIngestResponse(BaseModel):
     status: str = Field(..., description="Pipeline trigger status")
     message: str = Field(..., description="Background ingestion status message")
     tickets_ingested: int | None = Field(None, description="Tickets ingested if known")
+
+class TicketExportRequest(BaseModel):
+    use_case: str = Field("leadinsights", description="The registered use-case to query against")
+

@@ -49,6 +49,7 @@ export default function App() {
   const [ticketQuestion, setTicketQuestion] = useState(TICKET_DEFAULT_QUESTION);
   const [ticketLoading, setTicketLoading] = useState(false);
   const [ticketIngesting, setTicketIngesting] = useState(false);
+  const [ticketExporting, setTicketExporting] = useState(false);
   const [ticketError, setTicketError] = useState("");
   const [ticketResult, setTicketResult] = useState(null);
 
@@ -162,6 +163,41 @@ export default function App() {
     }
   }
 
+  async function handleTicketExport() {
+    setTicketError("");
+    setTicketExporting(true);
+
+    try {
+      const response = await fetch(`${getApiBaseUrl()}/api/ticket-intelligence/export`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ use_case: "leadinsights" }),
+      });
+
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.detail ?? "Ticket export failed.");
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "leadinsights_metrics_export.xlsx";
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+
+    } catch (submissionError) {
+      setTicketError(submissionError.message);
+    } finally {
+      setTicketExporting(false);
+    }
+  }
+
   const currentWorkspace = WORKSPACES.find((workspace) => workspace.id === activeWorkspace);
 
   return (
@@ -265,6 +301,14 @@ export default function App() {
                   type="button"
                 >
                   {ticketIngesting ? "Triggering..." : "Run Ingestion"}
+                </button>
+                <button
+                  className="secondary-button"
+                  disabled={ticketExporting}
+                  onClick={handleTicketExport}
+                  type="button"
+                >
+                  {ticketExporting ? "Exporting..." : "Export Report"}
                 </button>
               </div>
             </form>
