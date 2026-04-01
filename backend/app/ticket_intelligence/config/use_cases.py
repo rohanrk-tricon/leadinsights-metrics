@@ -26,7 +26,7 @@ LEAD_INSIGHTS_CONFIG = UseCaseConfig(
     ],
     filter_criteria_instruction="Only consider records when asked about leadinsights or LI where: `support_email = '{support_email}'`",
     exclusion_rules_text="- tags array contains 'spam' (e.g. 'spam' = ANY(tags))\n        - subject contains: 'automatic reply', 'respuesta automática', 'réponse automatique', 'export of tickets'",
-    exclusion_rules_sql="- Array filtering: To check if a tag exists, use 'tag_name' = ANY(tags). To exclude, use NOT ('spam' = ANY(tags)).\n        - Lower case subject filtering: LOWER(subject)",
+    exclusion_rules_sql="- Array filtering: To check if a tag exists, use 'tag_name' = ANY(tags). To exclude, use NOT ('spam' = ANY(tags)).\n  and type != 'Spam/Automated Email'      - Lower case subject filtering: LOWER(subject)",
     sql_rules="- Always apply cleaning rules and filter LeadInsights",
     export_metrics=[
         {

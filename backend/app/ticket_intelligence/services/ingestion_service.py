@@ -6,6 +6,7 @@ from psycopg2.extras import Json, execute_batch
 
 from app.core.config import Settings
 from app.ticket_intelligence.services.db_service import TicketDBService
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,7 @@ class TicketIngestionService:
             logger.error("Freshdesk credentials missing")
             raise ValueError("Freshdesk credentials are not configured.")
 
-        url = f"{self._base_url}?page={page}&per_page={self._per_page}"
+        url = f"{self._base_url}?page={page}&per_page={self._per_page}&include=description"
         logger.debug(f"Fetching tickets from URL: {url}")
 
         for attempt in range(self._max_retries):
@@ -69,6 +70,21 @@ class TicketIngestionService:
         logger.error(f"Failed to fetch tickets after {self._max_retries} retries (page {page})")
         return []
 
+    def calculate_resolution_days(self, updated_at_str, created_at_str):
+        if not updated_at_str or not created_at_str:
+            return None
+        
+        # Convert strings to datetime objects
+        # .replace('Z', '+00:00') handles the UTC suffix for ISO format compatibility
+        dt_updated = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+        dt_created = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+        
+        # Subtracting two datetimes returns a timedelta object
+        diff = dt_updated - dt_created
+        
+        # Return days as an integer (or diff.total_seconds() / 86400 for float)
+        return diff.days
+
     def transform_ticket(self, ticket: dict[str, Any]) -> dict[str, Any]:
         try:
             transformed = {
@@ -104,6 +120,7 @@ class TicketIngestionService:
                 "structured_description": ticket.get("description_text"),
                 "custom_fields": Json(ticket.get("custom_fields")),
                 "raw_payload": Json(ticket),
+                "resolution_time": self.calculate_resolution_days(ticket.get("updated_at"), ticket.get("created_at")),
                 "embedding": None,
             }
 
@@ -114,18 +131,45 @@ class TicketIngestionService:
             logger.exception(f"Failed to transform ticket: {ticket.get('id')}")
             raise
 
-    def fetch_embedding(self, text):
-        if not text.strip():
-            logger.debug("Skipping embedding for empty text")
+
+    def _chunk_text(self, text, chunk_size=2000, overlap=200):
+        if not text:
+            return []
+
+        chunks = []
+        start = 0
+        text_len = len(text)
+
+        while start < text_len:
+            end = start + chunk_size
+            chunks.append(text[start:end])
+            if end >= text_len:
+                break
+            start = end - overlap  # overlap preserves context
+
+        return chunks
+
+    def fetch_embeddings(self, text):
+        if not text or not text.strip():
             return None
 
-        try:
-            embedding = self._db_service.embeddings.embed_query(text)
-            logger.debug("Embedding generated successfully")
-            return embedding
-        except Exception:
-            logger.exception("Bedrock embedding error")
+        chunks = self._chunk_text(text)
+
+        embeddings = []
+        for chunk in chunks:
+            try:
+                emb = self._db_service.embeddings.embed_query(chunk)
+                if emb:
+                    embeddings.append(emb)
+            except Exception:
+                print("Embedding error for chunk")
+
+        if not embeddings:
             return None
+            
+        # Average the chunk embeddings to get a single vector for the entire ticket
+        avg_emb = [sum(col) / len(embeddings) for col in zip(*embeddings)]
+        return avg_emb
 
     def insert_batch(self, cursor, tickets: list[dict[str, Any]]) -> None:
         logger.info(f"Inserting batch of {len(tickets)} tickets into DB")
@@ -213,7 +257,7 @@ class TicketIngestionService:
                     data = self.transform_ticket(t)
 
                     text_to_embed = f"{data.get('subject') or ''} {data.get('structured_description') or ''}"
-                    data["embedding"] = self.fetch_embedding(text_to_embed)
+                    data["embedding"] = self.fetch_embeddings(text_to_embed)
 
                     transformed.append(data)
                 except Exception:
