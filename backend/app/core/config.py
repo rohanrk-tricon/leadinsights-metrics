@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     groq_api_key: str | None = None
     gemini_model: str = "gemini-2.5-flash"
     google_api_key: str | None = None
-    bedrock_model_id: str = "us.anthropic.claude-3-5-haiku-20241022-v1:0"
+    bedrock_model_id: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     bedrock_embedding_model: str = "amazon.titan-embed-text-v2:0"
     aws_region: str | None = Field("us-east-1", env="AWS_DEFAULT_REGION")
     aws_access_key_id: str | None = Field(None, env="AWS_ACCESS_KEY_ID")

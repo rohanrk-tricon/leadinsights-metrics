@@ -15,7 +15,7 @@ class TicketPrompts:
 
         return f"""
         Database: PostgreSQL
-        Table: "{ticket_schema}.{config.table_name}"
+        Table: {ticket_schema}.{config.table_name}
         Columns:
         id BIGINT
         support_email TEXT
@@ -68,7 +68,7 @@ class TicketPrompts:
         {config.exclusion_rules_text}
         
         SQL Rules:
-        - Use ONLY "{ticket_schema}.{config.table_name}"
+        - Use ONLY {ticket_schema}.{config.table_name}
         {config.sql_rules}
         {config.exclusion_rules_sql}
         """.strip()
