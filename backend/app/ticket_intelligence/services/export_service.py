@@ -31,8 +31,8 @@ class TicketExportService:
             config=config
         )
 
-    def generate_report(self, output_path: str = "/tmp/ticket_export.xlsx") -> str:
-        logger.info("Generating dynamic Excel report using LLM Orchestrator...")
+    def generate_report(self, start_date: str, end_date: str, output_path: str = "/tmp/ticket_export.xlsx") -> str:
+        logger.info(f"Generating dynamic Excel report using LLM Orchestrator for scope {start_date} to {end_date}")
         import json
         
         main_report_data = []
@@ -40,35 +40,38 @@ class TicketExportService:
 
         for metric in self._config.export_metrics:
             m_name = metric.get("name", "Unknown Metric")
-            m_question = metric.get("question", "")
+            base_question = metric.get("question", "")
             
             logger.info(f"Exporting metric: {m_name}")
-            if not m_question:
+            if not base_question:
                 continue
 
+            # Append the strictly applied date filters to guide the AI to scope its WHERE clause against created_at
+            m_question = f"{base_question} strictly filtering for tickets created_at between {start_date} and {end_date} inclusive."
+            
             try:
                 q_type, response_text, raw_data, sql = self._orchestrator.process_query(m_question)
                 
                 # Use a lightweight formatting pass to convert the answer or raw data into exact Excel shapes
                 format_prompt = f"""
-You are a data formatting assistant formatting data for an Excel report.
-Metric Name: {m_name}
-Question: {m_question}
-Pipeline Used: {q_type}
-Raw Data: {raw_data}
-AI Explanation: {response_text}
+                    You are a data formatting assistant formatting data for an Excel report.
+                    Metric Name: {m_name}
+                    Question: {m_question}
+                    Pipeline Used: {q_type}
+                    Raw Data: {raw_data}
+                    AI Explanation: {response_text}
 
-Format the answer into a strict JSON list of rows for the report.
-Each object MUST have exact keys: "Description" and "count" (use strings for values).
-Do not create a "Metrics" key, this will be handled automatically.
-If there are multiple categories (like Count by Category), return a list of objects, one for each category.
-If there is only one value (like Total Tickets), return one object where Description explains what it is.
+                    Format the answer into a strict JSON list of rows for the report.
+                    Each object MUST have exact keys: "Description" and "count" (use strings for values).
+                    Do not create a "Metrics" key, this will be handled automatically.
+                    If there are multiple categories (like Count by Category), return a list of objects, one for each category.
+                    If there is only one value (like Total Tickets), return one object where Description explains what it is.
 
-Only return valid parseable JSON. No markdown ticks. Example:
-[
-  {{"Description": "Company Accounts - Issue", "count": "1"}}
-]
-"""
+                    Only return valid parseable JSON. No markdown ticks. Example:
+                    [
+                    {{"Description": "Company Accounts - Issue", "count": "1"}}
+                    ]
+                    """
                 try:
                     format_response = self._llm_helper.call_llm(format_prompt).strip()
                     if format_response.startswith("```json"):
@@ -119,6 +122,15 @@ Only return valid parseable JSON. No markdown ticks. Example:
                 })
 
         # Save to two separate tabs using pandas ExcelWriter
+        # Inject metadata into analytics tab
+        analytics_data.insert(0, {
+            "Metrics": "Report Metadata",
+            "Question Asked": f"Applied Date Filter: {start_date} to {end_date}",
+            "Pipeline Used": "SYSTEM",
+            "Generated SQL": "N/A",
+            "AI Explanation": "Metadata block reflecting the date bounds applied to all metrics below."
+        })
+
         with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
             df_main = pd.DataFrame(main_report_data)
             df_main.to_excel(writer, sheet_name='Report', index=False)

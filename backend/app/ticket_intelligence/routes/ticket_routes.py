@@ -72,23 +72,47 @@ def query_ticket_intelligence(
 @router.post("/export")
 def export_ticket_intelligence(payload: TicketExportRequest, request: Request):
     try:
+        from app.ticket_intelligence.utils.date_utils import resolve_date_filter, DATEDURATION_CHOICES
+        
+        config = get_use_case_config(payload.use_case)
+        
+        # Validation
+        if payload.dateDuration and payload.dateDuration.strip().title() not in DATEDURATION_CHOICES:
+            raise HTTPException(status_code=400, detail=f"Invalid dateDuration. Choose from: {DATEDURATION_CHOICES}")
+            
+        if not payload.dateDuration and payload.startDate and payload.endDate:
+            if payload.startDate > payload.endDate:
+                raise HTTPException(status_code=400, detail="startDate must be less than or equal to endDate")
+
+        start_date, end_date = resolve_date_filter(payload.dateDuration, payload.startDate, payload.endDate)
+
         settings = request.app.state.settings
         model_factory = request.app.state.model_factory
         
         db_service = TicketDBService(settings)
         llm = model_factory.build_chat_model(temperature=0)
         llm_helper = LLMHelper(llm)
-
-        config = get_use_case_config(payload.use_case)
         
         export_svc = TicketExportService(db_service, llm_helper, config, settings)
-        file_path = export_svc.generate_report(output_path=f"/tmp/{payload.use_case}_metrics_export.xlsx")
+        file_path = export_svc.generate_report(
+            start_date=start_date,
+            end_date=end_date,
+            output_path=f"/tmp/{payload.use_case}_metrics_export.xlsx"
+        )
+        
+        headers = {
+            "X-Applied-Start-Date": start_date,
+            "X-Applied-End-Date": end_date
+        }
         
         return FileResponse(
             path=file_path,
             filename=f"{payload.use_case}_metrics_export.xlsx",
-            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers=headers
         )
+    except HTTPException:
+        raise
     except Exception as exc:
         logger.exception("Export failed")
         raise HTTPException(status_code=500, detail=str(exc)) from exc

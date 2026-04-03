@@ -22,4 +22,10 @@ class TicketIngestResponse(BaseModel):
 
 class TicketExportRequest(BaseModel):
     use_case: str = Field("leadinsights", description="The registered use-case to query against")
+    dateDuration: str | None = Field(
+        None, 
+        description="Optional named date duration. Overrides start/endDate.",
+    )
+    startDate: str | None = Field(None, description="Format YYYY-MM-DD")
+    endDate: str | None = Field(None, description="Format YYYY-MM-DD")
 
