@@ -1,3 +1,4 @@
+import logging
 from time import perf_counter
 
 from app.agents.sql_policy import build_policy_feedback
@@ -5,6 +6,8 @@ from app.agents.sql_executor import SQLExecutionAgent
 from app.agents.sql_generator import SQLGeneratorAgent
 from app.agents.validator import ResponseValidatorAgent
 from app.core.config import Settings
+
+logger = logging.getLogger(__name__)
 
 
 class QueryOrchestrator:
@@ -25,6 +28,10 @@ class QueryOrchestrator:
 
     async def stream(self, question: str):
         started_at = perf_counter()
+        logger.info(
+            "Lead query stream started",
+            extra={"question_length": len(question)},
+        )
         yield {
             "event": "status",
             "data": {
@@ -58,6 +65,10 @@ class QueryOrchestrator:
                         "message": f"SQL refinement pass {attempt}: {policy_feedback}",
                     },
                 }
+                logger.info(
+                    "Lead query SQL refinement requested",
+                    extra={"attempt": attempt, "question_length": len(question)},
+                )
                 feedback = policy_feedback
                 if attempt == 3:
                     raise ValueError(policy_feedback)
@@ -114,6 +125,14 @@ class QueryOrchestrator:
                 validation = await self._validator.validate(question, execution)
 
             total_ms = round((perf_counter() - started_at) * 1000, 2)
+            logger.info(
+                "Lead query stream completed",
+                extra={
+                    "question_length": len(question),
+                    "total_ms": total_ms,
+                    "confidence": validation.confidence,
+                },
+            )
             yield {
                 "event": "complete",
                 "data": {
@@ -124,6 +143,10 @@ class QueryOrchestrator:
                 },
             }
         except Exception as exc:
+            logger.exception(
+                "Lead query stream failed",
+                extra={"question_length": len(question), "error_type": type(exc).__name__},
+            )
             yield {
                 "event": "error",
                 "data": {
