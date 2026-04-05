@@ -46,7 +46,7 @@ class TicketDBService:
         logger.info("Query executed successfully, rows fetched: %d", len(results))
         return results
 
-    def vector_search(self, question: str) -> list[Any]:
+    def vector_search(self, question: str, top_k: int = 100) -> list[Any]:
         logger.info("Performing vector search")
 
         try:
@@ -59,18 +59,19 @@ class TicketDBService:
         emb_str = "[" + ",".join(map(str, question_embedding)) + "]"
 
         sql = """
-            SELECT subject, structured_description
+            SELECT id, subject, structured_description
             FROM freshdesk_tickets
             WHERE embedding IS NOT NULL AND NOT ('spam' = ANY(tags))
             AND subject !~* 'automatic reply|respuesta automática|réponse automatique|export of tickets'
             AND type != 'Spam/Automated Email'
             ORDER BY embedding <-> %s
+            LIMIT %s
         """
 
         try:
             with self.get_db_connection() as conn:
                 with conn.cursor() as cur:
-                    cur.execute(sql, (emb_str,))
+                    cur.execute(sql, (emb_str, top_k))
                     results = cur.fetchall()
 
             logger.info("Vector search completed, results: %d", len(results))
