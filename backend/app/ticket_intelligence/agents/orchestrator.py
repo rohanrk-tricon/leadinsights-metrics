@@ -6,6 +6,7 @@ from app.ticket_intelligence.utils.helpers import LLMHelper
 from app.ticket_intelligence.utils.config_prompts import TicketPrompts
 from app.ticket_intelligence.config.use_cases import UseCaseConfig
 from app.core.config import Settings
+from app.ticket_intelligence.services.reranker import get_reranker
 
 logger = logging.getLogger(__name__)
 
@@ -88,7 +89,14 @@ class TicketIntelligenceOrchestrator:
         else:
             logger.info("Routing to semantic search pipeline")
 
-            tickets = self._db_service.vector_search(question)
+            # 1. Candidate Retrieval (Recall Phase - Top 100 via vector bounds)
+            candidates = self._db_service.vector_search(question, top_k=100)
+            
+            # 2. Precision Reranking via Cross-Encoder (Precision Phase - Top 5)
+            reranker = get_reranker()
+            tickets = reranker.rerank(question, candidates, top_k=5)
+
+            # 3. Deterministic safe LLM Synthesis
             answer = self._semantic_agent.semantic_answer(question, tickets)
 
             logger.info("Semantic search completed")

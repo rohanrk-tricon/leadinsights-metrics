@@ -31,6 +31,7 @@ class TicketPrompts:
         fr_due_by TIMESTAMPTZ
         tags TEXT[]
         structured_description TEXT
+        type TEXT
 
         Status Codes:
         2 = Open, 3 = Pending, 4 = Resolved, 5 = Closed
@@ -88,25 +89,65 @@ class TicketPrompts:
 
     @staticmethod
     def generate_sql_prompt(question: str, schema_prompt: str, config: UseCaseConfig) -> str:
+        categories_str = "[\n    " + ", ".join(f'"{c}"' for c in config.categories) + "\n]"
         return f"""
-        You are a PostgreSQL expert.
-        Database schema: {schema_prompt}
+            ### ROLE
+            You are a PostgreSQL expert.
+            
+            ### CONTEXT
+            You are querying a table named `{config.table_name}`.
+            Database Schema:
+            {schema_prompt}
 
-        Rules:
-            - Only produce SELECT statements (no INSERT, UPDATE, DELETE, or DDL operations).
+            Available Categories:
+            {categories_str}
+
+            ### GLOBAL RULES
+            - ONLY produce SELECT statements (no INSERT, UPDATE, DELETE, or DDL operations).
             - Use valid PostgreSQL syntax.
-            {config.sql_rules}
-            - Apply all required data cleaning rules within the query.
-            - Output only the SQL code:
             - Begin directly with SELECT or WITH (if using CTEs).
-            - Do not include any explanations, comments, or additional text.
+            - Do NOT include comments, explanations, or extra text outside the defined output format.
+            - Apply all required data cleaning and exclusion rules within the query.
+            {config.sql_rules}
 
-        Cleaning Rules (Exclusions):
-        {config.exclusion_rules_text}
+            Cleaning Rules (Exclusions):
+            {config.exclusion_rules_text}
 
-        Question: {question}
-        """
+            ### STEP 1: CATEGORY CLASSIFICATION
+            Analyze the user's question and determine the most appropriate category:
 
+            1. If "Data Issues" is mentioned:
+            - Check if it relates to "Iris" or "LI Team" specifically.
+            2. Keyword Matching:
+            - "remove data", "missing data", "sync issue", "incorrect values" → Data Issue categories
+            - "login", "can't access" → Login Issue
+            3. If no explicit category is mentioned:
+            - Infer the best match using keywords and intent from the provided category list.
+            4. Always select ONE category from the provided list.
+
+            ### STEP 2: SQL GENERATION
+            - Use `ILIKE` for case-insensitive keyword matching. You MUST check the `subject`, `structured_description`, AND `type` columns.
+            - When a user query references a category, you MUST add a filter on the type column in your SQL using (type ILIKE '%<relevant keywords from the query>%'), and include this condition within the OR clause(s).
+            - When asked about login issues, you MUST EXCLUDE tickets forwarded to another team by strictly adding `AND type NOT ILIKE '%Fwd To Other Team%'` to your WHERE clause.
+            - When filtering by category:
+            - Use the EXACT string from the category list.
+            - If the user asks for:
+            - "count" → use `COUNT(*)`
+            - "details" → select `id`, `subject`, `status`, `created_at`
+            - Ensure all filters, cleaning rules, and exclusions are embedded directly in the SQL.
+
+            ### OUTPUT FORMAT (STRICT)
+            Your response MUST follow this exact structure:
+
+            - **Category Identified**: [Selected Category]
+            - **SQL Query**:
+            ```sql
+            [VALID PostgreSQL SELECT QUERY ONLY]
+            ```
+
+            Question: {question}
+            """.strip()
+    
     @staticmethod
     def validate_sql_prompt(question: str, sql: str, schema_prompt: str) -> str:
         return f"""
