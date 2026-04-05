@@ -61,7 +61,9 @@ class TicketDBService:
         sql = """
             SELECT subject, structured_description
             FROM freshdesk_tickets
-            WHERE embedding IS NOT NULL
+            WHERE embedding IS NOT NULL AND NOT ('spam' = ANY(tags))
+            AND subject !~* 'automatic reply|respuesta automática|réponse automatique|export of tickets'
+            AND type != 'Spam/Automated Email'
             ORDER BY embedding <-> %s
         """
 

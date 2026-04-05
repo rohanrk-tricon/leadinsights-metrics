@@ -15,6 +15,7 @@ from app.ticket_intelligence.services.export_service import TicketExportService
 from app.ticket_intelligence.agents.orchestrator import TicketIntelligenceOrchestrator
 from app.ticket_intelligence.utils.helpers import LLMHelper
 from app.ticket_intelligence.config.use_cases import get_use_case_config
+from app.ticket_intelligence.utils.date_utils import resolve_date_filter, DATEDURATION_CHOICES
 
 router = APIRouter(tags=["ticket-intelligence"])
 logger = logging.getLogger(__name__)
@@ -72,8 +73,7 @@ def query_ticket_intelligence(
 @router.post("/export")
 def export_ticket_intelligence(payload: TicketExportRequest, request: Request):
     try:
-        from app.ticket_intelligence.utils.date_utils import resolve_date_filter, DATEDURATION_CHOICES
-        
+
         config = get_use_case_config(payload.use_case)
         
         # Validation

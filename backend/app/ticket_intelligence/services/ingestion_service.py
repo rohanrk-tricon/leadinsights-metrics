@@ -255,6 +255,9 @@ class TicketIngestionService:
             for t in tickets:
                 try:
                     data = self.transform_ticket(t)
+                    ticket_type = (data.get("type") or "").lower()
+                    if "spam" in ticket_type:
+                        continue
 
                     text_to_embed = f"{data.get('subject') or ''} {data.get('structured_description') or ''}"
                     data["embedding"] = self.fetch_embeddings(text_to_embed)
