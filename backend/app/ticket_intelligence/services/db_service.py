@@ -24,13 +24,15 @@ class TicketDBService:
         )
 
     def get_db_connection(self):
-        logger.debug("Opening PostgreSQL connection")        
+        logger.debug("Opening PostgreSQL connection")
         return psycopg2.connect(
-            host="localhost",
-            port=5432,
-            dbname="postgres",
-            user="rohanrkulkarni",
-            password="admin",
+            host=self._settings.pg_host,
+            port=self._settings.pg_port,
+            dbname=self._settings.pg_database,
+            user=self._settings.pg_user,
+            password=self._settings.pg_password,
+            sslmode="disable",
+            gssencmode="disable",
             options=f"-c search_path={self._settings.ticket_schema},public",
         )
 

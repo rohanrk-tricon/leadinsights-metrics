@@ -2,7 +2,6 @@ import { useState } from "react";
 
 const LEAD_DEFAULT_QUESTION = "How many leads do we have by campaign?";
 const TICKET_DEFAULT_QUESTION = "How many LeadInsights tickets were closed last month?";
-
 const DATEDURATION_CHOICES = [
   "Yesterday", "Today", "This Week", "Last Week", "Next Week",
   "This Month", "Last Month", "Next Month", "This Quarter",
@@ -18,6 +17,8 @@ export default function App() {
   const [leadAnswer, setLeadAnswer] = useState("");
   const [leadError, setLeadError] = useState("");
   const [leadLoading, setLeadLoading] = useState(false);
+  const [leadExporting, setLeadExporting] = useState(false);
+  const [leadAppliedDateRange, setLeadAppliedDateRange] = useState(null);
 
   // Ticket state
   const [ticketView, setTicketView] = useState("query"); // NEW
@@ -72,11 +73,20 @@ export default function App() {
           buffer = buffer.slice(boundary + 2);
 
           if (block) {
-            const parsed = JSON.parse(block.replace(/^data:\s*/, ""));
-            setLeadEvents((c) => [...c, parsed]);
+            const lines = block.split("\n");
+            const eventLine = lines.find((line) => line.startsWith("event:"));
+            const dataLines = lines.filter((line) => line.startsWith("data:"));
+            const eventName = eventLine ? eventLine.replace(/^event:\s*/, "").trim() : "message";
+            const dataText = dataLines.map((line) => line.replace(/^data:\s*/, "")).join("\n");
 
-            if (parsed.event === "complete") setLeadAnswer(parsed.data?.answer || "");
-            if (parsed.event === "error") setLeadError(parsed.data?.message || "Error");
+            if (dataText) {
+              const payload = JSON.parse(dataText);
+              const parsed = { event: eventName, data: payload };
+              setLeadEvents((c) => [...c, parsed]);
+
+              if (parsed.event === "complete") setLeadAnswer(parsed.data?.answer || "");
+              if (parsed.event === "error") setLeadError(parsed.data?.message || "Error");
+            }
           }
 
           boundary = buffer.indexOf("\n\n");
@@ -177,6 +187,41 @@ export default function App() {
     }
   }
 
+  async function handleLeadMetricsExport() {
+    setLeadExporting(true);
+    setLeadError("");
+    setLeadAppliedDateRange(null);
+
+    try {
+      const res = await fetch(`${getApiBaseUrl()}/api/export-metrics`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ use_case: "leadinsights" }),
+      });
+
+      const start = res.headers.get("x-applied-start-date");
+      const end = res.headers.get("x-applied-end-date");
+      if (start && end) setLeadAppliedDateRange({ start, end });
+
+      if (!res.ok) {
+        const error = await res.text();
+        throw new Error(error || "Lead metrics export failed");
+      }
+
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "leadinsights_metrics_export.xlsx";
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setLeadError(err.message);
+    } finally {
+      setLeadExporting(false);
+    }
+  }
+
   /* ================================
      RENDER
   ================================= */
@@ -223,11 +268,27 @@ export default function App() {
                 value={leadQuestion}
                 onChange={(e) => setLeadQuestion(e.target.value)}
               />
-              <button type="submit" className="btn-primary" disabled={leadLoading}>
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
-                {leadLoading ? "Processing..." : "Analyze"}
-              </button>
+              <div className="btn-row">
+                <button type="submit" className="btn-primary" disabled={leadLoading}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+                  {leadLoading ? "Processing..." : "Analyze"}
+                </button>
+                <button type="button" className="btn-secondary" onClick={handleLeadMetricsExport} disabled={leadExporting}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="7 10 12 15 17 10" /><line x1="12" y1="15" x2="12" y2="3" /></svg>
+                  {leadExporting ? "Exporting..." : "Export Metrics"}
+                </button>
+              </div>
             </form>
+
+            {leadAppliedDateRange && (
+              <div className="glass-panel glow-border date-bounds">
+                <span className="date-icon">📅</span>
+                <span className="date-label">Applied date range:</span>
+                <span className="date-value">{leadAppliedDateRange.start}</span>
+                <span className="date-arrow">→</span>
+                <span className="date-value">{leadAppliedDateRange.end}</span>
+              </div>
+            )}
 
             <div className="panels-grid">
               <div className="readout-panel">

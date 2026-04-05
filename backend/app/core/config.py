@@ -2,7 +2,7 @@ from pathlib import Path
 from functools import lru_cache
 from typing import Literal
 from urllib.parse import quote_plus
-from pydantic import Field
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 import os 
@@ -17,13 +17,11 @@ class Settings(BaseSettings):
     frontend_origin: str = "http://localhost:5173"
 
     # Postgres
-    pg_host: str | None = Field(None, env="DB_HOST")
-    pg_port: int | None = Field(None, env="DB_PORT")
-    pg_user: str | None = Field(None, env="DB_USER")
-    pg_password: str | None = Field(None, env="DB_PASSWORD")
-    pg_database: str | None = Field(None, env="DB_NAME")
-
-    print(pg_host, pg_port, pg_user, pg_password, pg_database)
+    pg_host: str | None = Field(None, validation_alias=AliasChoices("PG_HOST", "DB_HOST"))
+    pg_port: int | None = Field(None, validation_alias=AliasChoices("PG_PORT", "DB_PORT"))
+    pg_user: str | None = Field(None, validation_alias=AliasChoices("PG_USER", "DB_USER"))
+    pg_password: str | None = Field(None, validation_alias=AliasChoices("PG_PASSWORD", "DB_PASSWORD"))
+    pg_database: str | None = Field(None, validation_alias=AliasChoices("PG_DATABASE", "DB_NAME"))
 
     # Model config
     model_provider: Literal["groq", "gemini", "bedrock"] = "bedrock"
@@ -34,16 +32,19 @@ class Settings(BaseSettings):
     google_api_key: str | None = None
     bedrock_model_id: str = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
     bedrock_embedding_model: str = "amazon.titan-embed-text-v2:0"
-    aws_region: str | None = Field("us-east-1", env="AWS_DEFAULT_REGION")
-    aws_access_key_id: str | None = Field(None, env="AWS_ACCESS_KEY_ID")
-    aws_secret_access_key: str | None = Field(None, env="AWS_SECRET_ACCESS_KEY")
-    aws_session_token: str | None = Field(None, env="AWS_SESSION_TOKEN")
+    aws_region: str | None = Field("us-east-1", validation_alias=AliasChoices("AWS_DEFAULT_REGION", "AWS_REGION"))
+    aws_access_key_id: str | None = Field(None, validation_alias=AliasChoices("AWS_ACCESS_KEY_ID"))
+    aws_secret_access_key: str | None = Field(None, validation_alias=AliasChoices("AWS_SECRET_ACCESS_KEY"))
+    aws_session_token: str | None = Field(None, validation_alias=AliasChoices("AWS_SESSION_TOKEN"))
 
     # Freshdesk
-    freshdesk_domain: str | None = Field(None, env="FRESHDESK_DOMAIN")
-    freshdesk_api_key: str | None = Field(None, env="FRESHDESK_API_KEY")
+    freshdesk_domain: str | None = Field(None, validation_alias=AliasChoices("FRESHDESK_DOMAIN"))
+    freshdesk_api_key: str | None = Field(None, validation_alias=AliasChoices("FRESHDESK_API_KEY"))
     ticket_schema: str = "leadinsights"
-    ticket_support_email: str = "informacomleadinsights@leadinsights.freshdesk.com"
+    ticket_support_email: str = Field(
+        "informacomleadinsights@leadinsights.freshdesk.com",
+        validation_alias=AliasChoices("TICKET_SUPPORT_EMAIL"),
+    )
 
     # Misc
     schema_cache_ttl_seconds: int = 300
