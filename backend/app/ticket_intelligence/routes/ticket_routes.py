@@ -73,9 +73,8 @@ def query_ticket_intelligence(
 @router.post("/export")
 def export_ticket_intelligence(payload: TicketExportRequest, request: Request):
     try:
-
         config = get_use_case_config(payload.use_case)
-        
+
         # Validation
         if payload.dateDuration and payload.dateDuration.strip().title() not in DATEDURATION_CHOICES:
             raise HTTPException(status_code=400, detail=f"Invalid dateDuration. Choose from: {DATEDURATION_CHOICES}")
@@ -88,11 +87,10 @@ def export_ticket_intelligence(payload: TicketExportRequest, request: Request):
 
         settings = request.app.state.settings
         model_factory = request.app.state.model_factory
-        
         db_service = TicketDBService(settings)
         llm = model_factory.build_chat_model(temperature=0)
         llm_helper = LLMHelper(llm)
-        
+
         export_svc = TicketExportService(db_service, llm_helper, config, settings)
         file_path = export_svc.generate_report(
             start_date=start_date,
