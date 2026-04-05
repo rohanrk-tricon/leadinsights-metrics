@@ -1,24 +1,19 @@
-from __future__ import annotations
-
 import logging
-import re
 import time
 from typing import Any
-
-import psycopg2
 import requests
-import boto3
-from langchain_aws import BedrockEmbeddings
 from psycopg2.extras import Json, execute_batch
 
 from app.core.config import Settings
+from app.ticket_intelligence.services.db_service import TicketDBService
+from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
-
 class TicketIngestionService:
-    def __init__(self, settings: Settings) -> None:
+    def __init__(self, settings: Settings, db_service: TicketDBService) -> None:
         self._settings = settings
+        self._db_service = db_service
         self._per_page = 100
         self._max_retries = 3
         self._base_url = None
@@ -33,45 +28,12 @@ class TicketIngestionService:
         else:
             logger.warning("Freshdesk domain not provided")
 
-        # AWS / Bedrock setup
-        try:
-            session = boto3.Session(
-                aws_access_key_id=settings.aws_access_key_id,
-                aws_secret_access_key=settings.aws_secret_access_key,
-                aws_session_token=settings.aws_session_token,
-                region_name=settings.aws_region
-            )
-            self.embeddings = BedrockEmbeddings(
-                client=session.client("bedrock-runtime"),
-                model_id=settings.bedrock_embedding_model
-            )
-            logger.info("Bedrock embeddings client initialized")
-        except Exception as e:
-            logger.exception("Failed to initialize Bedrock embeddings client")
-            raise
-
-    def get_db_connection(self):
-        try:
-            logger.info("Connecting to PostgreSQL database...")
-            conn = psycopg2.connect(
-                host=self._settings.pg_host,
-                port=self._settings.pg_port,
-                dbname=self._settings.pg_database,
-                user=self._settings.pg_user,
-                password=self._settings.pg_password,
-            )
-            logger.info("Database connection established")
-            return conn
-        except Exception:
-            logger.exception("Database connection failed")
-            raise
-
     def fetch_tickets(self, page: int) -> list[dict[str, Any]]:
         if not self._base_url or not self._settings.freshdesk_api_key:
             logger.error("Freshdesk credentials missing")
             raise ValueError("Freshdesk credentials are not configured.")
 
-        url = f"{self._base_url}?page={page}&per_page={self._per_page}"
+        url = f"{self._base_url}?page={page}&per_page={self._per_page}&include=description"
         logger.debug(f"Fetching tickets from URL: {url}")
 
         for attempt in range(self._max_retries):
@@ -108,6 +70,21 @@ class TicketIngestionService:
         logger.error(f"Failed to fetch tickets after {self._max_retries} retries (page {page})")
         return []
 
+    def calculate_resolution_days(self, updated_at_str, created_at_str):
+        if not updated_at_str or not created_at_str:
+            return None
+        
+        # Convert strings to datetime objects
+        # .replace('Z', '+00:00') handles the UTC suffix for ISO format compatibility
+        dt_updated = datetime.fromisoformat(updated_at_str.replace('Z', '+00:00'))
+        dt_created = datetime.fromisoformat(created_at_str.replace('Z', '+00:00'))
+        
+        # Subtracting two datetimes returns a timedelta object
+        diff = dt_updated - dt_created
+        
+        # Return days as an integer (or diff.total_seconds() / 86400 for float)
+        return diff.days
+
     def transform_ticket(self, ticket: dict[str, Any]) -> dict[str, Any]:
         try:
             transformed = {
@@ -143,6 +120,7 @@ class TicketIngestionService:
                 "structured_description": ticket.get("description_text"),
                 "custom_fields": Json(ticket.get("custom_fields")),
                 "raw_payload": Json(ticket),
+                "resolution_time": self.calculate_resolution_days(ticket.get("updated_at"), ticket.get("created_at")),
                 "embedding": None,
             }
 
@@ -153,18 +131,45 @@ class TicketIngestionService:
             logger.exception(f"Failed to transform ticket: {ticket.get('id')}")
             raise
 
-    def fetch_embedding(self, text):
-        if not text.strip():
-            logger.debug("Skipping embedding for empty text")
+
+    def _chunk_text(self, text, chunk_size=2000, overlap=200):
+        if not text:
+            return []
+
+        chunks = []
+        start = 0
+        text_len = len(text)
+
+        while start < text_len:
+            end = start + chunk_size
+            chunks.append(text[start:end])
+            if end >= text_len:
+                break
+            start = end - overlap  # overlap preserves context
+
+        return chunks
+
+    def fetch_embeddings(self, text):
+        if not text or not text.strip():
             return None
 
-        try:
-            embedding = self.embeddings.embed_query(text)
-            logger.debug("Embedding generated successfully")
-            return embedding
-        except Exception:
-            logger.exception("Bedrock embedding error")
+        chunks = self._chunk_text(text)
+
+        embeddings = []
+        for chunk in chunks:
+            try:
+                emb = self._db_service.embeddings.embed_query(chunk)
+                if emb:
+                    embeddings.append(emb)
+            except Exception:
+                print("Embedding error for chunk")
+
+        if not embeddings:
             return None
+            
+        # Average the chunk embeddings to get a single vector for the entire ticket
+        avg_emb = [sum(col) / len(embeddings) for col in zip(*embeddings)]
+        return avg_emb
 
     def insert_batch(self, cursor, tickets: list[dict[str, Any]]) -> None:
         logger.info(f"Inserting batch of {len(tickets)} tickets into DB")
@@ -225,7 +230,7 @@ class TicketIngestionService:
         logger.info("Starting ingestion pipeline...")
 
         try:
-            conn = self.get_db_connection()
+            conn = self._db_service.get_db_connection()
             cursor = conn.cursor()
         except Exception as e:
             return {
@@ -250,9 +255,12 @@ class TicketIngestionService:
             for t in tickets:
                 try:
                     data = self.transform_ticket(t)
+                    ticket_type = (data.get("type") or "").lower()
+                    if "spam" in ticket_type:
+                        continue
 
                     text_to_embed = f"{data.get('subject') or ''} {data.get('structured_description') or ''}"
-                    data["embedding"] = self.fetch_embedding(text_to_embed)
+                    data["embedding"] = self.fetch_embeddings(text_to_embed)
 
                     transformed.append(data)
                 except Exception:

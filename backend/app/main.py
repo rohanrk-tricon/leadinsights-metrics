@@ -11,7 +11,7 @@ from app.api.routes import router
 from app.core.config import get_settings
 from app.llm.strategy import ModelStrategyFactory
 from app.mcp.client import MCPDatabaseClient
-from app.ticket_intelligence.router import router as ticket_router
+from app.ticket_intelligence.routes.ticket_routes import router as ticket_router
 
 settings = get_settings()
 
