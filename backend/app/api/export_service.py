@@ -1,3 +1,4 @@
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -6,6 +7,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font
 
 from app.agents.orchestrator import QueryOrchestrator
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -20,6 +23,10 @@ class LeadMetricsExportService:
         self._orchestrator = orchestrator
 
     async def _run_stream_question(self, question: str) -> dict[str, Any]:
+        logger.info(
+            "Lead metrics export stream question started",
+            extra={"question_length": len(question)},
+        )
         result: dict[str, Any] = {
             "answer": "",
             "sql": None,
@@ -38,6 +45,14 @@ class LeadMetricsExportService:
                 result["answer"] = data.get("answer", "")
             elif event_name == "error":
                 raise RuntimeError(data.get("message", "Lead export stream failed"))
+        logger.info(
+            "Lead metrics export stream question completed",
+            extra={
+                "question_length": len(question),
+                "row_count": len(result["rows"]),
+                "column_count": len(result["columns"]),
+            },
+        )
         return result
 
     @staticmethod
@@ -141,6 +156,7 @@ class LeadMetricsExportService:
         self,
         output_path: str = "/tmp/lead_assistant_metrics_export.xlsx",
     ) -> str:
+        logger.info("Lead metrics workbook generation started", extra={"output_path": output_path})
         rows = await self.build_metrics_rows()
 
         workbook = Workbook()
@@ -168,4 +184,8 @@ class LeadMetricsExportService:
         destination.parent.mkdir(parents=True, exist_ok=True)
         workbook.save(destination)
         workbook.close()
+        logger.info(
+            "Lead metrics workbook generation completed",
+            extra={"output_path": str(destination), "row_count": len(rows)},
+        )
         return str(destination)

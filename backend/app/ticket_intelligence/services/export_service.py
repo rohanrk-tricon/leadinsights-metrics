@@ -1,15 +1,34 @@
 import logging
-from typing import Any, Dict, List
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Dict, List
 
 import pandas as pd
+from fastapi import HTTPException
 
 from app.core.config import Settings
-from app.ticket_intelligence.agents.orchestrator import TicketIntelligenceOrchestrator
 from app.ticket_intelligence.config.use_cases import UseCaseConfig
+from app.ticket_intelligence.schemas.ticket_schemas import TicketExportRequest
 from app.ticket_intelligence.services.db_service import TicketDBService
+from app.ticket_intelligence.utils.date_utils import DATEDURATION_CHOICES, resolve_date_filter
 from app.ticket_intelligence.utils.helpers import LLMHelper
 
 logger = logging.getLogger(__name__)
+
+if TYPE_CHECKING:
+    from app.ticket_intelligence.agents.orchestrator import TicketIntelligenceOrchestrator
+
+
+@dataclass
+class TicketPreparedExport:
+    file_path: str
+    filename: str
+    headers: dict[str, str]
+
+
+def _orchestrator_class() -> type["TicketIntelligenceOrchestrator"]:
+    from app.ticket_intelligence.agents.orchestrator import TicketIntelligenceOrchestrator
+
+    return TicketIntelligenceOrchestrator
 
 
 class TicketExportService:
@@ -25,11 +44,61 @@ class TicketExportService:
         self._config = config
         self._settings = settings
 
-        self._orchestrator = TicketIntelligenceOrchestrator(
+        self._orchestrator = _orchestrator_class()(
             llm_helper=llm_helper,
             db_service=db_service,
             settings=settings,
             config=config,
+        )
+
+    def prepare_export(self, payload: TicketExportRequest) -> TicketPreparedExport:
+        logger.info(
+            "Ticket export preparation started",
+            extra={
+                "use_case": payload.use_case,
+                "has_date_duration": bool(payload.dateDuration),
+                "has_start_date": bool(payload.startDate),
+                "has_end_date": bool(payload.endDate),
+            },
+        )
+        if payload.dateDuration and payload.dateDuration.strip().title() not in DATEDURATION_CHOICES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid dateDuration. Choose from: {DATEDURATION_CHOICES}",
+            )
+
+        if not payload.dateDuration and payload.startDate and payload.endDate:
+            if payload.startDate > payload.endDate:
+                raise HTTPException(status_code=400, detail="startDate must be less than or equal to endDate")
+
+        start_date, end_date = resolve_date_filter(
+            payload.dateDuration,
+            payload.startDate,
+            payload.endDate,
+        )
+        filename = f"{payload.use_case}_metrics_export.xlsx"
+        file_path = self.generate_report(
+            start_date=start_date,
+            end_date=end_date,
+            output_path=f"/tmp/{filename}",
+        )
+        logger.info(
+            "Ticket export preparation completed",
+            extra={
+                "use_case": payload.use_case,
+                "start_date": start_date,
+                "end_date": end_date,
+                "filename": filename,
+            },
+        )
+
+        return TicketPreparedExport(
+            file_path=file_path,
+            filename=filename,
+            headers={
+                "X-Applied-Start-Date": start_date,
+                "X-Applied-End-Date": end_date,
+            },
         )
 
     def generate_report(
@@ -39,9 +108,12 @@ class TicketExportService:
         output_path: str = "/tmp/ticket_export.xlsx",
     ) -> str:
         logger.info(
-            "Generating dynamic Excel report using LLM Orchestrator for scope %s to %s",
-            start_date,
-            end_date,
+            "Generating dynamic Excel report using LLM Orchestrator",
+            extra={
+                "start_date": start_date,
+                "end_date": end_date,
+                "metric_count": len(self._config.export_metrics),
+            },
         )
         import json
 
@@ -103,7 +175,10 @@ class TicketExportService:
                         })
 
                 except Exception as json_e:
-                    logger.error("Failed to JSON parse metric %s. Raw Output: %s", m_name, format_response)
+                    logger.error(
+                        "Failed to parse formatted ticket export metric",
+                        extra={"metric_name": m_name, "error_type": type(json_e).__name__},
+                    )
                     main_report_data.append({
                         "Metrics": m_name,
                         "Description": "Error parsing JSON",
@@ -119,7 +194,10 @@ class TicketExportService:
                 })
 
             except Exception as exc:
-                logger.error("Failed to generate metric %s: %s", m_name, exc)
+                logger.error(
+                    "Failed to generate ticket export metric",
+                    extra={"metric_name": m_name, "error_type": type(exc).__name__},
+                )
                 main_report_data.append({
                     "Metrics": m_name,
                     "Description": m_question,
@@ -146,5 +224,5 @@ class TicketExportService:
             df_analytics = pd.DataFrame(analytics_data)
             df_analytics.to_excel(writer, sheet_name="Analytics & SQL", index=False)
 
-        logger.info("Excel report saved to %s", output_path)
+        logger.info("Ticket Excel report saved", extra={"output_path": output_path})
         return output_path
