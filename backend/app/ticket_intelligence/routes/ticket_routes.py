@@ -9,13 +9,7 @@ from app.ticket_intelligence.schemas.ticket_schemas import (
     TicketQueryResponse,
     TicketExportRequest,
 )
-from app.ticket_intelligence.services.db_service import TicketDBService
-from app.ticket_intelligence.services.ingestion_service import TicketIngestionService
-from app.ticket_intelligence.services.export_service import TicketExportService
-from app.ticket_intelligence.agents.orchestrator import TicketIntelligenceOrchestrator
-from app.ticket_intelligence.utils.helpers import LLMHelper
-from app.ticket_intelligence.config.use_cases import get_use_case_config
-from app.ticket_intelligence.utils.date_utils import resolve_date_filter, DATEDURATION_CHOICES
+from app.ticket_intelligence.services.runtime import build_ingestion_service, build_ticket_runtime
 
 router = APIRouter(tags=["ticket-intelligence"])
 logger = logging.getLogger(__name__)
@@ -26,9 +20,8 @@ def health() -> dict[str, str]:
 
 @router.post("/ingest", response_model=TicketIngestResponse)
 def ingest_data(background_tasks: BackgroundTasks, request: Request) -> TicketIngestResponse:
-    print("Received request to ingest tickets")
-    db_service = TicketDBService(request.app.state.settings)
-    service = TicketIngestionService(request.app.state.settings, db_service)
+    logger.info("Ticket ingestion requested")
+    service = build_ingestion_service(request)
     background_tasks.add_task(service.run_pipeline)
     return TicketIngestResponse(
         status="in_progress",
@@ -41,76 +34,57 @@ def query_ticket_intelligence(
     payload: TicketQueryRequest, request: Request
 ) -> TicketQueryResponse:
     try:
-        settings = request.app.state.settings
-        model_factory = request.app.state.model_factory
-        
-        db_service = TicketDBService(settings)
-        llm = model_factory.build_chat_model(temperature=0)
-        llm_helper = LLMHelper(llm)
-
-        config = get_use_case_config(payload.use_case)
-
-        orchestrator = TicketIntelligenceOrchestrator(
-            llm_helper=llm_helper,
-            db_service=db_service,
-            settings=settings,
-            config=config
+        logger.info(
+            "Ticket query requested",
+            extra={"use_case": payload.use_case, "question_length": len(payload.question)},
         )
-
-        query_type, response_text, raw_data, sql_query = orchestrator.process_query(
-            payload.question
-        )
+        runtime = build_ticket_runtime(request, payload.use_case)
+        result = runtime.query_service.execute(payload.question)
         return TicketQueryResponse(
-            query_type=query_type,
-            response=response_text,
-            raw_data=raw_data,
-            sql_query=sql_query,
+            query_type=result.query_type,
+            response=result.response_text,
+            raw_data=result.raw_data,
+            sql_query=result.sql_query,
         )
+    except HTTPException:
+        raise
     except Exception as exc:
-        logger.exception("Ticket Intelligence query failed")
+        logger.exception(
+            "Ticket Intelligence query failed",
+            extra={
+                "use_case": payload.use_case,
+                "question_length": len(payload.question),
+                "error_type": type(exc).__name__,
+            },
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc
 
 @router.post("/export")
 def export_ticket_intelligence(payload: TicketExportRequest, request: Request):
     try:
-        config = get_use_case_config(payload.use_case)
-
-        # Validation
-        if payload.dateDuration and payload.dateDuration.strip().title() not in DATEDURATION_CHOICES:
-            raise HTTPException(status_code=400, detail=f"Invalid dateDuration. Choose from: {DATEDURATION_CHOICES}")
-            
-        if not payload.dateDuration and payload.startDate and payload.endDate:
-            if payload.startDate > payload.endDate:
-                raise HTTPException(status_code=400, detail="startDate must be less than or equal to endDate")
-
-        start_date, end_date = resolve_date_filter(payload.dateDuration, payload.startDate, payload.endDate)
-
-        settings = request.app.state.settings
-        model_factory = request.app.state.model_factory
-        db_service = TicketDBService(settings)
-        llm = model_factory.build_chat_model(temperature=0)
-        llm_helper = LLMHelper(llm)
-
-        export_svc = TicketExportService(db_service, llm_helper, config, settings)
-        file_path = export_svc.generate_report(
-            start_date=start_date,
-            end_date=end_date,
-            output_path=f"/tmp/{payload.use_case}_metrics_export.xlsx"
+        logger.info(
+            "Ticket export requested",
+            extra={
+                "use_case": payload.use_case,
+                "has_date_duration": bool(payload.dateDuration),
+                "has_start_date": bool(payload.startDate),
+                "has_end_date": bool(payload.endDate),
+            },
         )
-        
-        headers = {
-            "X-Applied-Start-Date": start_date,
-            "X-Applied-End-Date": end_date
-        }
-        
+        runtime = build_ticket_runtime(request, payload.use_case)
+        result = runtime.export_service.prepare_export(payload)
+
         return FileResponse(
-            path=file_path,
-            filename=f"{payload.use_case}_metrics_export.xlsx",
+            path=result.file_path,
+            filename=result.filename,
             media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            headers=headers
+            headers=result.headers,
         )
     except HTTPException:
         raise
     except Exception as exc:
-        logger.exception("Export failed")
+        logger.exception(
+            "Ticket export failed",
+            extra={"use_case": payload.use_case, "error_type": type(exc).__name__},
+        )
         raise HTTPException(status_code=500, detail=str(exc)) from exc

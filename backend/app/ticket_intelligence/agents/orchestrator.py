@@ -31,19 +31,28 @@ class TicketIntelligenceOrchestrator:
         self._semantic_agent = TicketSemanticAgent(llm_helper, config)
 
     def classify_question(self, question: str) -> str:
-        logger.info("Classifying question: %s", question)
+        logger.info(
+            "Ticket query classification started",
+            extra={"question_length": len(question)},
+        )
         prompt = TicketPrompts.classify_question_prompt(question)
         result = self._llm_helper.call_llm(prompt).strip()
-        logger.info("Classification result: %s", result)
+        logger.info(
+            "Ticket query classification completed",
+            extra={"classification": result},
+        )
         return result
 
     def process_query(self, question: str):
-        logger.info("Processing query: %s", question)
+        logger.info(
+            "Ticket query processing started",
+            extra={"question_length": len(question)},
+        )
 
         qtype = self.classify_question(question)
 
         if "SQL_ANALYTICS" in qtype:
-            logger.info("Routing to SQL analytics pipeline")
+            logger.info("Ticket query routed to SQL analytics")
 
             sql = self._sql_agent.generate_sql(question)
 
@@ -54,7 +63,10 @@ class TicketIntelligenceOrchestrator:
 
             while attempt < max_retries:
                 attempt += 1
-                logger.info("SQL attempt %d/%d", attempt, max_retries)
+                logger.info(
+                    "Ticket SQL execution attempt started",
+                    extra={"attempt": attempt, "max_retries": max_retries},
+                )
 
                 if not self._llm_helper.is_safe_sql(current_sql):
                     logger.warning("Initial SQL failed safety check")
@@ -76,7 +88,10 @@ class TicketIntelligenceOrchestrator:
 
                 except Exception as e:
                     last_error = str(e)
-                    logger.warning("SQL failed attempt %d: %s", attempt, last_error)
+                    logger.warning(
+                        "Ticket SQL execution attempt failed",
+                        extra={"attempt": attempt, "error_type": type(e).__name__},
+                    )
 
                     if attempt < max_retries:
                         current_sql = self._sql_agent.fix_sql(question, current_sql, last_error)
@@ -87,7 +102,7 @@ class TicketIntelligenceOrchestrator:
             return "SQL_ANALYTICS", explanation, [], current_sql
 
         else:
-            logger.info("Routing to semantic search pipeline")
+            logger.info("Ticket query routed to semantic search")
 
             # 1. Candidate Retrieval (Recall Phase - Top 100 via vector bounds)
             candidates = self._db_service.vector_search(question, top_k=100)
@@ -99,5 +114,8 @@ class TicketIntelligenceOrchestrator:
             # 3. Deterministic safe LLM Synthesis
             answer = self._semantic_agent.semantic_answer(question, tickets)
 
-            logger.info("Semantic search completed")
+            logger.info(
+                "Ticket semantic search completed",
+                extra={"ticket_count": len(tickets)},
+            )
             return "SEMANTIC_SEARCH", answer, tickets, None
