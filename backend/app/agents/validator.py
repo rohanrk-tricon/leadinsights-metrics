@@ -16,6 +16,11 @@ Your job:
 - Always include final_answer. Use an empty string when is_valid is false.
 - Always include rationale.
 - Set follow_up_sql to null when is_valid is true.
+- Write for an end user, not an engineer.
+- Keep the final answer concise, normally 1-3 sentences unless the user asked for detail.
+- Do not mention SQL, joins, validation rules, or default internal/test-email exclusions unless the user explicitly asks.
+- If ranking or listing categories, mention at most 5 items unless the user explicitly asks for more.
+- If many rows are returned, summarize the pattern instead of exhaustively enumerating every item.
 - Never invent data that is not present in the rows.
 - Enforce the business rules below when judging whether the SQL was correct.
 - Keep follow_up_sql to one safe read-only PostgreSQL statement.

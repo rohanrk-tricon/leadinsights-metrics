@@ -26,6 +26,9 @@ class QueryOrchestrator:
     async def healthcheck(self) -> dict:
         return await self._executor.healthcheck()
 
+    async def execute_readonly_sql(self, sql: str):
+        return await self._executor.execute(sql)
+
     async def stream(self, question: str):
         started_at = perf_counter()
         logger.info(

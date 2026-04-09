@@ -22,38 +22,68 @@ class LeadMetricsExportService:
     def __init__(self, orchestrator: QueryOrchestrator):
         self._orchestrator = orchestrator
 
-    async def _run_stream_question(self, question: str) -> dict[str, Any]:
+    async def _run_sql_query(self, sql: str) -> dict[str, Any]:
         logger.info(
-            "Lead metrics export stream question started",
-            extra={"question_length": len(question)},
+            "Lead metrics export SQL execution started",
+            extra={"sql_length": len(sql)},
         )
+        execution = await self._orchestrator.execute_readonly_sql(sql)
         result: dict[str, Any] = {
             "answer": "",
-            "sql": None,
-            "rows": [],
-            "columns": [],
+            "sql": sql,
+            "rows": execution.rows,
+            "columns": execution.columns,
         }
-        async for event in self._orchestrator.stream(question):
-            event_name = event["event"]
-            data = event["data"]
-            if event_name == "sql_generated":
-                result["sql"] = data.get("sql")
-            elif event_name == "query_executed":
-                result["rows"] = data.get("rows", [])
-                result["columns"] = data.get("columns", [])
-            elif event_name == "complete":
-                result["answer"] = data.get("answer", "")
-            elif event_name == "error":
-                raise RuntimeError(data.get("message", "Lead export stream failed"))
         logger.info(
-            "Lead metrics export stream question completed",
+            "Lead metrics export SQL execution completed",
             extra={
-                "question_length": len(question),
+                "sql_length": len(sql),
                 "row_count": len(result["rows"]),
                 "column_count": len(result["columns"]),
             },
         )
         return result
+
+    @staticmethod
+    def _build_metrics_sql(start_date: str, end_date: str) -> dict[str, str]:
+        active_campaign_predicate = (
+            f"c.start_date::date <= DATE '{end_date}' "
+            f"AND (c.end_date IS NULL OR c.end_date::date >= DATE '{start_date}')"
+        )
+        sponsor_count_expr = "COUNT(DISTINCT tsc.sponsor_id)"
+
+        return {
+            "campaign_count": f"""
+                SELECT COUNT(*) AS campaign_count
+                FROM leadinsights.campaign c
+                WHERE {active_campaign_predicate};
+            """.strip(),
+            "sponsors_per_campaign": f"""
+                SELECT
+                    c.name AS campaign_name,
+                    {sponsor_count_expr} AS sponsor_count
+                FROM leadinsights.campaign c
+                LEFT JOIN leadinsights.tenant_sponsor_campaign tsc
+                    ON tsc.campaign_id = c.id
+                    AND tsc.deleted_on IS NULL
+                WHERE {active_campaign_predicate}
+                GROUP BY c.id, c.name
+                ORDER BY sponsor_count DESC, c.name ASC;
+            """.strip(),
+            "top_campaigns": f"""
+                SELECT
+                    c.name AS campaign_name,
+                    {sponsor_count_expr} AS sponsor_count
+                FROM leadinsights.campaign c
+                LEFT JOIN leadinsights.tenant_sponsor_campaign tsc
+                    ON tsc.campaign_id = c.id
+                    AND tsc.deleted_on IS NULL
+                WHERE {active_campaign_predicate}
+                GROUP BY c.id, c.name
+                ORDER BY sponsor_count DESC, c.name ASC
+                LIMIT 5;
+            """.strip(),
+        }
 
     @staticmethod
     def _extract_first_number(row: dict[str, Any]) -> str:
@@ -99,25 +129,12 @@ class LeadMetricsExportService:
                 counts.append(count)
         return "\n".join(names), "\n".join(counts)
 
-    async def build_metrics_rows(self) -> list[LeadMetricRow]:
-        questions = {
-            "campaign_count": (
-                "How many campaigns were onboarded this month? "
-                "Return a single row with one numeric count."
-            ),
-            "sponsors_per_campaign": (
-                "List sponsors onboarded per campaign this month. "
-                "Return one row per campaign with columns campaign_name and sponsor_count."
-            ),
-            "top_campaigns": (
-                "What are the top 5 campaigns by sponsor volume? "
-                "Return exactly five rows with columns campaign_name and sponsor_count."
-            ),
-        }
+    async def build_metrics_rows(self, start_date: str, end_date: str) -> list[LeadMetricRow]:
+        sql_queries = self._build_metrics_sql(start_date, end_date)
 
-        campaign_count_result = await self._run_stream_question(questions["campaign_count"])
-        sponsors_result = await self._run_stream_question(questions["sponsors_per_campaign"])
-        top_campaigns_result = await self._run_stream_question(questions["top_campaigns"])
+        campaign_count_result = await self._run_sql_query(sql_queries["campaign_count"])
+        sponsors_result = await self._run_sql_query(sql_queries["sponsors_per_campaign"])
+        top_campaigns_result = await self._run_sql_query(sql_queries["top_campaigns"])
 
         campaign_count = ""
         if campaign_count_result["rows"]:
@@ -136,17 +153,17 @@ class LeadMetricsExportService:
 
         return [
             LeadMetricRow(
-                metric="Campaigns onboarded this month",
+                metric="Campaigns active this month",
                 description=campaign_count,
                 sponsor_count="",
             ),
             LeadMetricRow(
-                metric="Sponsors onboarded per campaign this month",
+                metric="Sponsors per active campaign this month",
                 description=sponsors_description,
                 sponsor_count=sponsors_count,
             ),
             LeadMetricRow(
-                metric="Top 5 Campaigns by sponsor volume",
+                metric="Top 5 active campaigns by sponsor volume",
                 description=top_description,
                 sponsor_count=top_count,
             ),
@@ -155,9 +172,14 @@ class LeadMetricsExportService:
     async def generate_report(
         self,
         output_path: str = "/tmp/lead_assistant_metrics_export.xlsx",
+        start_date: str | None = None,
+        end_date: str | None = None,
     ) -> str:
         logger.info("Lead metrics workbook generation started", extra={"output_path": output_path})
-        rows = await self.build_metrics_rows()
+        if not start_date or not end_date:
+            raise ValueError("start_date and end_date are required for lead metrics export.")
+
+        rows = await self.build_metrics_rows(start_date, end_date)
 
         workbook = Workbook()
         sheet = workbook.active
