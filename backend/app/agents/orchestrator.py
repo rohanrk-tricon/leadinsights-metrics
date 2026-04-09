@@ -124,6 +124,9 @@ class QueryOrchestrator:
                 }
                 validation = await self._validator.validate(question, execution)
 
+            if not validation.is_valid:
+                raise ValueError(validation.rationale or "The validator could not produce a reliable final answer.")
+
             total_ms = round((perf_counter() - started_at) * 1000, 2)
             logger.info(
                 "Lead query stream completed",
@@ -133,10 +136,11 @@ class QueryOrchestrator:
                     "confidence": validation.confidence,
                 },
             )
+            answer = validation.final_answer or validation.rationale
             yield {
                 "event": "complete",
                 "data": {
-                    "answer": validation.final_answer,
+                    "answer": answer,
                     "confidence": validation.confidence,
                     "rationale": validation.rationale,
                     "total_ms": total_ms,

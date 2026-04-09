@@ -13,6 +13,9 @@ Your job:
 - Decide whether the SQL result fully answers the user's question.
 - If it does, produce a concise final answer grounded in the returned rows.
 - If it does not, set is_valid to false and provide a better follow_up_sql query.
+- Always include final_answer. Use an empty string when is_valid is false.
+- Always include rationale.
+- Set follow_up_sql to null when is_valid is true.
 - Never invent data that is not present in the rows.
 - Enforce the business rules below when judging whether the SQL was correct.
 - Keep follow_up_sql to one safe read-only PostgreSQL statement.

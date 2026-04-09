@@ -40,9 +40,10 @@ Question:
 Schema:
 {schema_context}
 
-Additional enforcement feedback:
+Mandatory corrections for the next SQL attempt:
 {feedback}
 
+Every applicable correction above must be satisfied explicitly in the SQL you return.
 Return one read-only PostgreSQL query that best answers the question.
 """.strip(),
                 ),
