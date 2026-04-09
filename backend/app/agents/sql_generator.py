@@ -15,6 +15,7 @@ Your job:
 - Use ILIKE for flexible text matching where useful.
 - Keep the result set compact. If the question asks for raw rows, include a LIMIT.
 - Respect the business rules provided below.
+- If enforcement feedback requires a specific table or column, the SQL must literally include it.
 - Never generate INSERT, UPDATE, DELETE, ALTER, DROP, TRUNCATE, CREATE, GRANT, REVOKE, or COPY.
 - Do not use multiple statements.
 
@@ -57,7 +58,7 @@ Return one read-only PostgreSQL query that best answers the question.
         feedback: str | None = None,
     ) -> SQLPlan:
         if self._model is None:
-            self._model = self._factory.build_chat_model().with_structured_output(SQLPlan)
+            self._model = self._factory.build_chat_model(temperature=0.0).with_structured_output(SQLPlan)
         chain = self._prompt | self._model
         return await chain.ainvoke(
             {
