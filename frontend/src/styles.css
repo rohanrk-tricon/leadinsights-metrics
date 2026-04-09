@@ -329,6 +329,73 @@ body {
   color: var(--fg);
 }
 
+.answer-content {
+  font-family: var(--font);
+  white-space: normal;
+}
+
+.answer-paragraph + .answer-paragraph {
+  margin-top: 0.9rem;
+}
+
+.activity-content {
+  font-family: var(--font);
+  white-space: normal;
+}
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.activity-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.activity-badge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  padding: 0.15rem 0.55rem;
+  border-radius: 9999px;
+  background: var(--secondary);
+  color: var(--muted-fg);
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.activity-badge.complete {
+  background: hsla(140 55% 45% / 0.12);
+  color: hsl(140 55% 32%);
+}
+
+.activity-badge.error {
+  background: hsla(0 70% 55% / 0.12);
+  color: hsl(0 60% 42%);
+}
+
+.activity-badge.refining {
+  background: hsla(35 95% 50% / 0.12);
+  color: hsl(28 85% 38%);
+}
+
+.activity-message {
+  color: var(--fg);
+  line-height: 1.55;
+}
+
 .placeholder-text {
   color: var(--muted-fg);
   font-style: italic;
