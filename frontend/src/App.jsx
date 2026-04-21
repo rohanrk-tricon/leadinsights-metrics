@@ -16,7 +16,7 @@ export default function App() {
         <div className="header-inner">
           <div className="logo">
             <div className="logo-icon">✦</div>
-            <span className="logo-text">AI Command Center</span>
+            <span className="logo-text">Leadinsights Analytics</span>
           </div>
           <div className="workspace-switcher">
             <button
