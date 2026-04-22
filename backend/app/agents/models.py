@@ -21,8 +21,11 @@ class QueryExecution(BaseModel):
 class ValidationResult(BaseModel):
     is_valid: bool = Field(description="Whether the answer is sufficient for the user question.")
     confidence: Literal["low", "medium", "high"]
-    final_answer: str = Field(description="Natural-language answer for the user.")
-    rationale: str = Field(description="Short validation rationale.")
+    final_answer: str = Field(
+        default="",
+        description="Natural-language answer for the user. Use an empty string when a follow-up query is needed.",
+    )
+    rationale: str = Field(default="", description="Short validation rationale.")
     follow_up_sql: str | None = Field(
         default=None,
         description="Optional improved read-only SQL query if a retry is needed.",

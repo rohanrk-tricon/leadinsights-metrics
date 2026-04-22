@@ -57,7 +57,11 @@ async def export_metrics(payload: LeadMetricsExportRequest, request: Request):
         )
         start_date, end_date = resolve_date_filter("This Month")
         export_service = LeadMetricsExportService(request.app.state.orchestrator)
-        file_path = await export_service.generate_report("/tmp/leadinsights_metrics_export.xlsx")
+        file_path = await export_service.generate_report(
+            "/tmp/leadinsights_metrics_export.xlsx",
+            start_date=start_date,
+            end_date=end_date,
+        )
         logger.info(
             "Lead metrics export generated",
             extra={

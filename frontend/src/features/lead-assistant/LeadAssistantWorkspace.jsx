@@ -1,3 +1,51 @@
+function buildTimeline(events) {
+  const timeline = [];
+  let refiningCount = 0;
+
+  for (const event of events) {
+    if (event.event === "status") {
+      const stage = event.data?.stage;
+      const message = event.data?.message;
+      if (!message) {
+        continue;
+      }
+
+      if (stage === "refining_sql") {
+        refiningCount += 1;
+        continue;
+      }
+
+      timeline.push({ label: stage || "status", message });
+      continue;
+    }
+
+    if (event.event === "complete") {
+      timeline.push({ label: "complete", message: "Answer ready." });
+      continue;
+    }
+
+    if (event.event === "error") {
+      timeline.push({ label: "error", message: event.data?.message || "Request failed." });
+    }
+  }
+
+  if (refiningCount > 0) {
+    timeline.splice(2, 0, {
+      label: "refining",
+      message: `SQL was refined ${refiningCount} time${refiningCount === 1 ? "" : "s"} to match policy rules.`,
+    });
+  }
+
+  return timeline;
+}
+
+function formatAnswer(answer) {
+  return answer
+    .split(/\n{2,}/)
+    .map((section) => section.trim())
+    .filter(Boolean);
+}
+
 export default function LeadAssistantWorkspace({
   question,
   setQuestion,
@@ -10,6 +58,9 @@ export default function LeadAssistantWorkspace({
   onSubmit,
   onExport,
 }) {
+  const timeline = buildTimeline(events);
+  const answerSections = formatAnswer(answer);
+
   return (
     <div id="lead-workspace" className="workspace animate-in">
       <div className="workspace-header">
@@ -50,14 +101,33 @@ export default function LeadAssistantWorkspace({
       <div className="panels-grid">
         <div className="readout-panel">
           <div className="readout-label">AI Response</div>
-          <div className="readout-content">
-            {answer ? answer : <span className="placeholder-text">Response will appear here…</span>}
+          <div className="readout-content answer-content">
+            {answerSections.length > 0 ? (
+              answerSections.map((section, index) => (
+                <p key={`${index}-${section.slice(0, 24)}`} className="answer-paragraph">
+                  {section}
+                </p>
+              ))
+            ) : (
+              <span className="placeholder-text">Response will appear here…</span>
+            )}
           </div>
         </div>
         <div className="readout-panel">
-          <div className="readout-label">Stream Trace</div>
-          <div className="readout-content">
-            {events.length > 0 ? JSON.stringify(events, null, 2) : <span className="placeholder-text">Streaming chunks will appear here…</span>}
+          <div className="readout-label">Request Activity</div>
+          <div className="readout-content activity-content">
+            {timeline.length > 0 ? (
+              <div className="activity-list">
+                {timeline.map((item, index) => (
+                  <div key={`${item.label}-${index}`} className="activity-item">
+                    <span className={`activity-badge ${item.label}`}>{item.label.replaceAll("_", " ")}</span>
+                    <span className="activity-message">{item.message}</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <span className="placeholder-text">Processing steps will appear here…</span>
+            )}
           </div>
         </div>
       </div>

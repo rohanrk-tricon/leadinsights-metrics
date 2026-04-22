@@ -3,6 +3,38 @@ import re
 from app.agents.business_rules import DEFAULT_EXCLUDED_EMAIL_DOMAINS
 
 YEAR_PATTERN = re.compile(r"\b20\d{2}\b")
+ISO_DATE_PATTERN = re.compile(r"\b20\d{2}-\d{2}-\d{2}\b")
+
+TIME_WINDOW_TERMS = (
+    "today",
+    "yesterday",
+    "this week",
+    "last week",
+    "this month",
+    "last month",
+    "this quarter",
+    "last quarter",
+    "this year",
+    "last year",
+    "current month",
+    "current quarter",
+    "current year",
+    "between",
+    "during",
+    "from ",
+    "to ",
+    "before",
+    "after",
+    "monthly",
+    "quarterly",
+    "yearly",
+)
+
+
+def _needs_campaign_window(question_lower: str) -> bool:
+    return any(term in question_lower for term in TIME_WINDOW_TERMS) or bool(
+        YEAR_PATTERN.search(question_lower) or ISO_DATE_PATTERN.search(question_lower)
+    )
 
 
 def build_policy_feedback(question: str, sql: str) -> str | None:
@@ -16,16 +48,7 @@ def build_policy_feedback(question: str, sql: str) -> str | None:
         or "include test" in question_lower
         or any(domain in question_lower for domain in DEFAULT_EXCLUDED_EMAIL_DOMAINS)
     )
-    needs_campaign_window = is_lead_question and (
-        "generated" in question_lower
-        or "campaign" in question_lower
-        or "between" in question_lower
-        or "during" in question_lower
-        or "year" in question_lower
-        or "month" in question_lower
-        or "quarter" in question_lower
-        or bool(YEAR_PATTERN.search(question_lower))
-    )
+    needs_campaign_window = is_lead_question and _needs_campaign_window(question_lower)
 
     if not is_lead_question:
         return None
@@ -54,7 +77,9 @@ def build_policy_feedback(question: str, sql: str) -> str | None:
             )
         if "start_date" not in sql_lower and "end_date" not in sql_lower:
             feedback.append(
-                "Use leadinsights.campaign.start_date and/or end_date to anchor the campaign window for generated-lead questions."
+                "Use leadinsights.campaign.start_date and/or leadinsights.campaign.end_date directly in a join or WHERE predicate. "
+                "Example pattern: JOIN leadinsights.campaign c ON c.id = leadinsights.lead_txn_davc.campaign_id "
+                "WHERE c.start_date <= CURRENT_DATE AND (c.end_date IS NULL OR c.end_date >= CURRENT_DATE)."
             )
 
     if not feedback:
